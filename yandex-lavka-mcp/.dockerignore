@@ -1,0 +1,16 @@
+.git
+.idea
+.env
+.env.*
+.venv
+dist
+build
+*.egg-info
+__pycache__
+.pytest_cache
+tests
+scripts
+docs
+config.json
+captures
+db.db
