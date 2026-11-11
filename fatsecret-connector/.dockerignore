@@ -1,0 +1,10 @@
+# Only package sources and build metadata may enter the build context.
+**
+!Dockerfile
+!pyproject.toml
+!README.md
+!src/
+!src/fatsecret_connector/
+!src/fatsecret_connector/**
+**/__pycache__/
+**/*.py[cod]

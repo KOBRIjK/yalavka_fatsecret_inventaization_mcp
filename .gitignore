@@ -1,0 +1,10 @@
+.env
+backups/
+**/.venv/
+**/__pycache__/
+**/.idea/
+**/work/
+**/data/
+**/.tokens.json
+**/config.json
+**/.env

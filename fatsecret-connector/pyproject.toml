@@ -1,0 +1,22 @@
+[build-system]
+requires = ['setuptools>=68']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'fatsecret-connector'
+version = '0.1.0'
+description = 'Single-owner FatSecret diary MCP server'
+readme = 'README.md'
+requires-python = '>=3.11'
+dependencies = [
+    'mcp>=1.12,<2',
+    'requests-oauthlib>=2,<3',
+    'python-dotenv>=1,<2',
+]
+
+[project.scripts]
+fatsecret-mcp = 'fatsecret_connector.__main__:main'
+fatsecret-authorize = 'fatsecret_connector.authorize:cli'
+
+[tool.setuptools.packages.find]
+where = ['src']

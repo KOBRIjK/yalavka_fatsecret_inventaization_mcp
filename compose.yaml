@@ -1,0 +1,112 @@
+name: eda
+
+x-app: &app
+  image: eda-mcp:local
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
+  init: true
+  restart: unless-stopped
+  environment: &database
+    EDA_DATABASE_URL: postgresql://eda:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/eda
+  depends_on:
+    postgres:
+      condition: service_healthy
+  healthcheck: &http-health
+    test: [CMD, python, -c, "import socket,os; socket.create_connection(('127.0.0.1',int(os.environ.get('MCP_PORT','8000'))),timeout=3).close()"]
+    interval: 15s
+    timeout: 5s
+    start_period: 15s
+    retries: 5
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: eda
+      POSTGRES_USER: eda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U eda -d eda']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  pantry:
+    <<: *app
+    environment:
+      <<: *database
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: '8002'
+      MCP_TRANSPORT: streamable-http
+      PANTRY_BACKUP_DIR: /backups
+    ports: ['127.0.0.1:8002:8002']
+    volumes: [pantry_backups:/backups]
+
+  fatsecret:
+    <<: *app
+    depends_on:
+      pantry:
+        condition: service_healthy
+    command: [python, -m, fatsecret_connector, --http, --port, '8001']
+    environment:
+      <<: *database
+      FATSECRET_MCP_HOST: 0.0.0.0
+      MCP_PORT: '8001'
+    ports: ['127.0.0.1:8001:8001']
+
+  lavka:
+    <<: *app
+    depends_on:
+      pantry:
+        condition: service_healthy
+    command: [python, -m, yandex_lavka_mcp]
+    environment:
+      <<: *database
+      YANDEX_LAVKA_MCP_TRANSPORT: streamable-http
+      YANDEX_LAVKA_MCP_HOST: 0.0.0.0
+      YANDEX_LAVKA_MCP_PORT: '8000'
+      YANDEX_LAVKA_MCP_ALLOW_INSECURE: '1'
+      YANDEX_LAVKA_MCP_SPRAVKA: ${YANDEX_LAVKA_MCP_SPRAVKA:-}
+    ports: ['127.0.0.1:8000:8000']
+
+  tests:
+    image: eda-mcp-tests:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: tests
+    profiles: [tools]
+    environment: *database
+    depends_on:
+      pantry:
+        condition: service_healthy
+      fatsecret:
+        condition: service_healthy
+      lavka:
+        condition: service_healthy
+
+  backup:
+    image: postgres:17-bookworm
+    profiles: [tools]
+    environment:
+      PGHOST: postgres
+      PGUSER: eda
+      PGDATABASE: eda
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    entrypoint: [sh, -ec]
+    command:
+      - 'umask 077; file=/backups/eda-$$(date -u +%Y%m%dT%H%M%S)-$${HOSTNAME}.dump; pg_dump -Fc -f "$$file"; pg_restore --list "$$file" >/dev/null; echo "Backup created: $$file"'
+
+volumes:
+  postgres_data:
+  pantry_backups:
