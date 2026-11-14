@@ -17,8 +17,31 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build and test the Compose stack
+      - name: Start the test database
         run: |
-          export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-          docker compose build pantry tests
-          docker compose run --rm tests
+          POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$POSTGRES_PASSWORD"
+          echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
+          export POSTGRES_PASSWORD
+          docker compose up -d postgres
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build images with cached Docker layers
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          source: .
+          files: compose.yaml
+          targets: |
+            pantry
+            tests
+          load: true
+          # The tests stage includes the entire runtime stage.
+          set: |
+            *.cache-from=type=gha,scope=eda-stack
+            tests.cache-to=type=gha,scope=eda-stack,mode=max,ignore-error=true
+
+      - name: Run stack tests
+        run: docker compose run --rm tests
