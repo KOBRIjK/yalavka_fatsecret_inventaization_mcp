@@ -27,7 +27,8 @@ def test_migration():
         c.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
     try:
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory)
+            path = Path(directory) / 'legacy #1?'
+            path.mkdir()
             with sqlite3.connect(path / 'pantry.sqlite3') as c:
                 c.executescript('''
                 CREATE TABLE stock(id TEXT PRIMARY KEY,name TEXT,quantity TEXT,unit TEXT,location TEXT,expires_on TEXT,note TEXT,external_ids TEXT,revision INTEGER,updated_at TEXT);
@@ -42,6 +43,12 @@ def test_migration():
             (path / 'fatsecret.env').write_text('FATSECRET_CONSUMER_KEY=fixture\nFATSECRET_CONSUMER_SECRET=fixture\n')
             test_dsn = make_conninfo(dsn, options=f'-csearch_path={schema}')
             env = dict(os.environ, EDA_DATABASE_URL=test_dsn, PANTRY_SCHEMA=schema, LEGACY_DIR=str(path))
+            missing = subprocess.run(
+                [sys.executable, '/app/pantry/migrate.py'],
+                env=dict(env, LEGACY_DIR=str(path / 'missing')),
+                capture_output=True, text=True, timeout=20,
+            )
+            assert missing.returncode != 0 and 'LEGACY_DIR' in missing.stderr
             run('/app/pantry/migrate.py', env=env)
             run('/app/pantry/migrate.py', env=env)
             with psycopg.connect(test_dsn) as c:

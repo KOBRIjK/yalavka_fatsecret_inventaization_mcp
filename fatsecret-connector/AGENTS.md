@@ -1,48 +1,42 @@
-# Repository Guidelines
+# Правила для коннектора FatSecret
 
-## Project Structure & Module Organization
+Действуют вместе с корневым `../AGENTS.md`. Для запуска и настройки этого рабочего пространства используйте `../README.md` и корневой `../compose.yaml`. Описанные в локальном README самостоятельные способы запуска не применяются к стеку Eda.
 
-This Python 3.11+ project connects a single owner's FatSecret diary to MCP clients.
+## Структура и стиль
 
-- `src/fatsecret_connector/server.py`: `create_server()` factory and MCP registration.
-- `src/fatsecret_connector/tools/foods.py`, `tools/diary.py`: tool validation and behavior.
-- `src/fatsecret_connector/client.py`: OAuth sessions, HTTP requests, and date conversion.
-- `src/fatsecret_connector/config.py`: explicit settings loading and token paths.
-- `src/fatsecret_connector/authorize.py`: interactive OAuth 1.0 authorization.
-- `src/fatsecret_connector/__main__.py`: HTTP/stdio command-line entry point.
-- Root `server.py` and `authorize.py`: compatibility launchers using root-local config.
-- `tests/`: unittest tests, with API calls mocked.
-- `pyproject.toml`: dependencies and entry points; `requirements.txt`: editable-install shortcut.
-- `README.md`: setup and usage instructions.
+- `src/fatsecret_connector/server.py`: фабрика `create_server()` и регистрация MCP-инструментов.
+- `tools/foods.py`, `tools/diary.py`: валидация аргументов и поведение инструментов.
+- `client.py`: OAuth-сессии, HTTP-запросы и преобразование дат.
+- `config.py`: явная загрузка настроек; в рабочем стеке ключи и токен находятся в PostgreSQL через `eda_state`.
+- `authorize.py`: интерактивная OAuth 1.0 авторизация; `__main__.py`: точка входа сервера.
+- Корневые `server.py` и `authorize.py` внутри коннектора — совместимые обёртки. Не используйте их для запуска второго рабочего сервера.
+- `tests/`: `unittest` с моками API. Общий тестовый контейнер запускает эти проверки вместе с проверками остальных сервисов.
+- Сохраняйте отступ в четыре пробела, `snake_case` для функций, `PascalCase` для классов, типизированные сигнатуры инструментов и стиль соседних строк.
+- Держите сетевой транспорт в `client.py`, валидацию инструментов — в `tools/`. Передавайте клиент через зависимости; не добавляйте чтение настроек или сеть при импорте модулей.
 
-## Build, Test, and Development Commands
+## Запуск и проверки
 
-Use a virtual environment. From PowerShell:
+Не создавайте `.venv` для запуска сервиса и не используйте локальный Dockerfile в этом рабочем пространстве. Запуск из корня Eda:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m unittest -v
-.\.venv\Scripts\python.exe server.py --http
+docker compose up -d --build --wait
 ```
 
-These commands create the environment, install dependencies, run tests, and serve MCP at `http://127.0.0.1:8000/mcp`. Omit `--http` for stdio. On macOS/Linux, use `.venv/bin/python` instead. Install the package in editable mode before running it.
+После изменения коннектора выполните из того же корня:
 
-For account access, copy `.env.example` to `.env`, fill in credentials locally, and run `authorize.py` with the environment's Python interpreter.
+```powershell
+docker compose build tests
+docker compose run --rm tests
+```
 
-## Coding Style & Naming Conventions
+Именуйте тесты `test_*.py` и методы `test_*`. Используйте `unittest.mock`, без внешних запросов и настоящих ключей. Проверяйте некорректные аргументы, принадлежность порции продукту, принадлежность записи дате, отсутствие повторов записи, аннотации MCP и безопасные сообщения об ошибках. Проверки состояния PostgreSQL должны использовать изолированную схему.
 
-Use four-space indentation, `snake_case` functions and variables, `PascalCase` classes, and uppercase constants. Match the existing single-quoted strings and type-annotated MCP tool signatures. Keep API transport in the package `client.py` and tool validation in `tools/`.
-Inject clients into tools and load settings explicitly at startup; avoid import-time I/O. No formatter or linter is configured; keep changes focused and consistent with nearby code.
+## Записи и безопасность
 
-## Testing Guidelines
-
-Use standard-library `unittest` and `unittest.mock.patch`. Name test files `test_*.py` and methods `test_*`. Mock API calls so tests require neither credentials nor network access. Cover invalid inputs, serving ownership, single-write behavior, and MCP annotations when changing those paths. No coverage threshold is configured. Run the full suite before submitting changes; account integration checks are separate and can modify the real diary.
-
-## Commit & Pull Request Guidelines
-
-This checkout contains no Git metadata, so existing commit conventions cannot be verified. Use concise imperative subjects, such as `Validate serving before diary write`. Describe the behavior change, relevant issue, test command and results, and any configuration changes in pull requests.
-
-## Security & Configuration
-
-Never commit `.env` or `.tokens.json`, or log credentials and signed URLs. Keep HTTP bound to loopback and use an authenticated tunnel. Preserve explicit local dates and serving-unit conversion. Never automatically retry diary writes; read the diary first after an uncertain failure.
+- Добавляйте и удаляйте записи только по запросу пользователя. Каждая операция — один внешний вызов записи, без автоматического повтора, в том числе при тайм-ауте.
+- После неопределённого результата сначала читайте дневник за ту же дату. Не делайте вывод о неуспехе по отсутствию ответа.
+- Дата задаётся явно в `YYYY-MM-DD` по часовому поясу пользователя. `number_of_units` соответствует выбранной порции API; граммы требуют пересчёта.
+- Перед добавлением выбирайте продукт через поиск и `get_food`, проверяйте принадлежность `serving_id`. Для удаления используйте только `food_entry_id` из дневника за нужную дату.
+- Не выводите и не коммитьте ключи, `.env`, `.tokens.json`, cookies, подписанные OAuth URL, строки подключения или дампы. Не включайте исходные ответы с секретами в исключения.
+- Сохраняйте отказ авторизации от перезаписи уже существующего токена. Переподключение аккаунта — отдельная явная операция, а не побочный эффект теста или запуска.
+- Не меняйте настоящий дневник ради проверки. Авторизация владельцем аккаунта не является тестовым сценарием агента.

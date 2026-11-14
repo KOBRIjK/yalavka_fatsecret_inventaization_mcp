@@ -4,7 +4,7 @@
 Основная инструкция: [../README.md](../README.md).
 
 Остатки, операции и журнал находятся в PostgreSQL, в Docker volume eda_postgres_data.
-Старая data/pantry.sqlite3 сохранена только как источник первоначальной миграции.
+Для переноса старого учёта `migrate.py` читает `pantry.sqlite3` из каталога `LEGACY_DIR`, подключённого только для чтения.
 Локальная .venv и requirements-lock.txt больше не используются для запуска.
 
 Инструменты: pantry_status, list_stock, receive_stock, change_stock, stock_history, backup_pantry.

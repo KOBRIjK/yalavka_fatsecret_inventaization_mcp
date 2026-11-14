@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -16,7 +17,10 @@ from eda_state import initialize_state
 
 
 def migrate():
-    legacy = Path(os.environ.get('LEGACY_DIR', '/legacy'))
+    legacy_dir = os.environ.get('LEGACY_DIR')
+    if not legacy_dir or not Path(legacy_dir).is_dir():
+        raise ValueError('LEGACY_DIR must point to the mounted legacy directory')
+    legacy = Path(legacy_dir)
     initialize_state()
     server.initialize()
     with server.connect(True) as c:
@@ -33,9 +37,9 @@ def migrate():
 
         path = legacy / 'pantry.sqlite3'
         if path.exists():
-            # SQLite backup produces a stable view even if an old client is still connected.
-            with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as src:
+            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as src:
                 src.row_factory = sqlite3.Row
+                # Read all three tables from the same SQLite snapshot.
                 src.execute('BEGIN')
                 tables = {t: [dict(row) for row in src.execute(f'SELECT * FROM {t}')] for t in ('stock', 'operations', 'events')}
             digest = hashlib.sha256(json.dumps(tables, sort_keys=True).encode()).hexdigest()
