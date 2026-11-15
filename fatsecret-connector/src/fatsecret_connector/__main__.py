@@ -14,7 +14,7 @@ def main(argv=None, *, default_config_dir: Path | None = None):
     parser.add_argument('--port', type=int, default=8000, help='HTTP port (default: 8000).')
     parser.add_argument('--config-dir', type=Path,
                         default=os.getenv('FATSECRET_CONFIG_DIR') or default_config_dir,
-                        help='Directory containing .env and .tokens.json; defaults to cwd.')
+                        help='Configuration directory for file-based mode.')
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('--port must be between 1 and 65535')
