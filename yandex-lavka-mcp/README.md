@@ -97,11 +97,10 @@ uv pip install -e '.[browser]'
 python scripts/extract_chrome_cookies.py          # auto-detects your profile
 ```
 
-**Any OS — paste the Cookie header** from DevTools (Network → any
-`lavka.yandex.ru` request → Request Headers → Cookie):
+**Any OS — import a private JSON file** mapping cookie names to string values:
 
 ```bash
-python scripts/import_cookies.py --header "Session_id=...; yandexuid=...; L=..."
+python scripts/import_cookies.py --json /private/path/cookies.json
 ```
 
 Session cookies expire — re-run when calls start failing with "Lavka session is
@@ -239,17 +238,15 @@ it with your own auth. Leaving OAuth unset is allowed for loopback/local use.
 
 Yandex may start answering a hosted instance with a captcha — decided by the
 server's IP, not the session (the same cookies keep working from home). Tools then
-fail with *"Yandex anti-bot returned a captcha"*. Solve it once through that IP:
+fail with *"Yandex anti-bot returned a captcha"*. To see the manual helper's options:
 
 ```bash
-ssh -f -N -D 1080 <your-server>     # SOCKS proxy out of the server's IP
-uv run --with playwright python scripts/solve_captcha.py --proxy socks5://127.0.0.1:1080
+python scripts/solve_captcha.py --help
 ```
 
-A throwaway Chrome window opens on the captcha; solve it. The script prints the
-`spravka` cookie to stdout — set it as the `YANDEX_LAVKA_MCP_SPRAVKA` secret
-(pipe it straight in) and restart. It lasts about 30 days; repeat when the
-captcha error comes back.
+Interactive use requires Playwright and desktop Chrome. Use `--output` to
+specify a new file in a private directory outside the repository. The script
+does not overwrite existing files or print the cookie to stdout.
 
 ## Develop
 
