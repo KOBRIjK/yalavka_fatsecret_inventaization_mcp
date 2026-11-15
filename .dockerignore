@@ -14,5 +14,6 @@
 **/.tokens.json
 **/config.json
 **/*cookie*
+!yandex-lavka-mcp/scripts/import_cookies.py
 backups
 .env

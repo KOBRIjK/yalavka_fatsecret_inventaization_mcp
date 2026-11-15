@@ -2,23 +2,21 @@
 """Import a Yandex session into the Lavka MCP config (one-time setup).
 
 Usage:
-    # from a raw Cookie header copied from the browser devtools:
-    python scripts/import_cookies.py --header "Session_id=...; yandexuid=...; L=..."
-
-    # or from a JSON dump {"Session_id": "...", ...}:
+    # from a private JSON file mapping cookie names to values:
     python scripts/import_cookies.py --json cookies.json
 
 Optionally pin a delivery location:
     ... --lat 55.751244 --lon 37.618423 --label "Home"
 
-Cookies are written to ~/.config/yandex-lavka-mcp/config.json (chmod 600) and
-never printed.
+Compose stores the result in PostgreSQL. Outside the stack the connector's
+file configuration is used. Cookie values and delivery details are not printed.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -32,9 +30,11 @@ def parse_cookie_header(header: str) -> dict[str, str]:
     cookies: dict[str, str] = {}
     for part in header.split(";"):
         part = part.strip()
-        if not part or "=" not in part:
+        if not part:
             continue
-        name, value = part.split("=", 1)
+        name, sep, value = part.partition("=")
+        if not sep:
+            raise ValueError
         cookies[name.strip()] = value.strip()
     return cookies
 
@@ -42,7 +42,7 @@ def parse_cookie_header(header: str) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     src = parser.add_mutually_exclusive_group(required=True)
-    src.add_argument("--header", help="Raw Cookie header string")
+    src.add_argument("--header", help="Raw Cookie header string (prefer --json to keep secrets out of shell history)")
     src.add_argument("--json", help="Path to a JSON file mapping cookie name->value")
     parser.add_argument("--lat", type=float)
     parser.add_argument("--lon", type=float)
@@ -50,29 +50,42 @@ def main() -> int:
     parser.add_argument("--label")
     args = parser.parse_args()
 
-    if args.header:
-        cookies = parse_cookie_header(args.header)
-    else:
-        with open(args.json, encoding="utf-8") as fh:
-            cookies = dict(json.load(fh))
+    if (args.lat is None) != (args.lon is None):
+        parser.error("--lat and --lon must be supplied together")
+    if args.lat is not None and not (-90 <= args.lat <= 90 and -180 <= args.lon <= 180):
+        parser.error("Coordinates are out of range")
+    if args.label and args.lat is None and not args.address_id:
+        parser.error("--label requires coordinates or --address-id")
 
-    if not cookies:
-        print("No cookies parsed.", file=sys.stderr)
+    try:
+        if args.header is not None:
+            cookies = parse_cookie_header(args.header)
+        else:
+            with open(args.json, encoding="utf-8-sig") as fh:
+                cookies = json.load(fh)
+        if not isinstance(cookies, dict) or not cookies or not all(
+            isinstance(name, str) and re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name)
+            and isinstance(value, str) and all(32 <= ord(ch) < 127 and ch != ";" for ch in value)
+            for name, value in cookies.items()
+        ):
+            raise ValueError
+    except (ValueError, OSError):
+        print("Invalid cookie input: expected a readable name/value mapping or Cookie header.", file=sys.stderr)
         return 1
 
-    config = load_config()
-    config.cookies.update(cookies)
-    if args.lat is not None or args.lon is not None or args.address_id:
-        config.location = Location(
-            lat=args.lat, lon=args.lon, address_id=args.address_id, label=args.label
-        )
-
-    path = save_config(config)
-    have_session = bool(cookies.get("Session_id") or cookies.get("Session_id2"))
-    print(f"Saved {len(cookies)} cookies to {path}")
-    print(f"Session cookie present: {have_session}")
-    if config.location.is_set():
-        print(f"Location set: {config.location.label or config.location.to_dict()}")
+    try:
+        config = load_config()
+        config.cookies.update(cookies)
+        if args.lat is not None or args.address_id:
+            config.location = Location(
+                lat=args.lat, lon=args.lon, address_id=args.address_id, label=args.label
+            )
+        save_config(config)
+    except Exception:
+        print("Could not read or save the Lavka configuration.", file=sys.stderr)
+        return 1
+    print(f"Saved {len(cookies)} cookies. Session cookie present: {config.is_authenticated()}")
+    print(f"Location set: {config.location.is_set()}")
     return 0
 
 
