@@ -7,31 +7,36 @@ Solve the captcha once *through that IP* and give the server the resulting
 `spravka` cookie — requests from there pass again (the cookie lives ~30 days).
 
 Usage:
-    ssh -f -N -D 1080 <your-server>        # SOCKS proxy through the server's IP
-    uv run --with playwright python scripts/solve_captcha.py --proxy socks5://127.0.0.1:1080
+    python scripts/solve_captcha.py --help
 
 A Chrome window opens on the captcha (a throwaway profile, not your browser);
 solve it there. The script waits until Lavka really answers with data, then
-prints the `spravka` value to stdout (everything else goes to stderr), so it
-can be piped straight into the server's YANDEX_LAVKA_MCP_SPRAVKA secret.
+writes the result to a new file in a private directory specified by --output.
+The cookie is never printed.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
 import tempfile
 import time
-
-from playwright.sync_api import sync_playwright
+from pathlib import Path
 
 LAVKA = "https://lavka.yandex.ru"
 
 
 def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
+
+
+def save_result(path: Path, value: str) -> None:
+    # Exclusive creation also prevents following an existing file or symlink.
+    with os.fdopen(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "w", encoding="utf-8") as fh:
+        fh.write(value)
 
 
 def search(ctx) -> dict:
@@ -47,14 +52,25 @@ def search(ctx) -> dict:
             "x-captcha-service": "lavka",
         },
     )
-    return r.json()
+    data = r.json()
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected service response")
+    return data
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--proxy", required=True, help="proxy through the blocked IP, e.g. socks5://127.0.0.1:1080")
     ap.add_argument("--timeout", type=int, default=900, help="seconds to wait for the solve (default 900)")
+    ap.add_argument("--output", required=True, type=Path, help="new file in a private directory; never overwritten")
     args = ap.parse_args()
+    if args.timeout <= 0:
+        ap.error("--timeout must be positive")
+    try:
+        from playwright.sync_api import Error as PlaywrightError, sync_playwright
+    except ImportError:
+        log("Interactive mode requires Playwright and desktop Chrome; they are not part of the MCP image.")
+        return 1
 
     profile = tempfile.mkdtemp(prefix="lavka-captcha-")
     try:
@@ -62,7 +78,6 @@ def main() -> int:
             ctx = p.chromium.launch_persistent_context(
                 profile, channel="chrome", headless=False, proxy={"server": args.proxy}
             )
-            log("egress IP: " + ctx.request.get("https://ipinfo.io/ip").text().strip())
             first = search(ctx)
             if first.get("type") != "captcha":
                 log("No captcha from this IP — nothing to solve.")
@@ -83,9 +98,18 @@ def main() -> int:
         if not spravka:
             log("Lavka passes, but no `spravka` cookie was set.")
             return 1
-        log("Solved: Lavka answers with data now.")
-        print(spravka)
+        save_result(args.output, spravka)
+        log("Result saved.")
         return 0
+    except FileExistsError:
+        log("Output file already exists; nothing was overwritten.")
+        return 1
+    except OSError:
+        log("File operation failed. Check the private output directory and its permissions.")
+        return 1
+    except (PlaywrightError, ValueError, KeyError):
+        log("Browser request failed. Check desktop Chrome, the connection and the service response.")
+        return 1
     finally:
         shutil.rmtree(profile, ignore_errors=True)
 

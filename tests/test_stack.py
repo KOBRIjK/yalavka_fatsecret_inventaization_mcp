@@ -20,6 +20,32 @@ def run(*args, env=None, cwd=None):
     subprocess.run([sys.executable, *args], env=env, cwd=cwd, check=True, timeout=180)
 
 
+def check_lavka_import(env, dsn, directory):
+    script = '/sources/lavka/scripts/import_cookies.py'
+    path = directory / 'import.json'
+    sample = 'private-fixture-only'
+    path.write_text(json.dumps({'Session_id': sample}))
+    def invoke(*args):
+        result = subprocess.run([sys.executable, script, *args], env=env,
+                                capture_output=True, text=True, timeout=20)
+        assert sample not in result.stdout + result.stderr
+        return result.returncode
+
+    def stored():
+        with psycopg.connect(dsn) as c:
+            return c.execute("SELECT value FROM connector_state WHERE key='lavka_config'").fetchone()[0]
+
+    assert invoke('--json', str(path), '--lat', '1', '--lon', '2', '--label', sample) == 0
+    assert invoke('--header', 'extra=one==') == 0
+    state = stored()
+    assert state['cookies']['Session_id'] == sample and state['cookies']['extra'] == 'one=='
+    assert state['location']['label'] == sample and state['context']['test'] == 'persisted'
+    path.write_text(json.dumps({'invalid': [sample]}))
+    assert invoke('--json', str(path)) != 0
+    assert invoke('--header', 'partial=bad', '--lat', '1') != 0
+    assert stored() == state
+
+
 def test_migration():
     schema = 'migration_test_' + uuid4().hex
     dsn = os.environ['EDA_DATABASE_URL']
@@ -58,6 +84,7 @@ def test_migration():
                 assert c.execute('SELECT COUNT(*) FROM connector_state').fetchone()[0] == 4
             # Verify JSON configuration really uses PostgreSQL, not file fallback.
             run('-c', "from yandex_lavka_mcp.config import load_config,save_config; c=load_config(); assert c.is_authenticated(); c.context['test']='persisted'; save_config(c); assert load_config().context['test']=='persisted'; from fatsecret_connector.config import load_settings; assert load_settings().consumer_key=='fixture'", env=env)
+            check_lavka_import(env, test_dsn, path)
     finally:
         with psycopg.connect(dsn, autocommit=True) as c:
             c.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
