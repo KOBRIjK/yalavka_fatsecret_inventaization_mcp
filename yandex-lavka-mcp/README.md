@@ -1,5 +1,3 @@
-> В этом рабочем пространстве используйте общий ../compose.yaml и [../README.md](../README.md). Рабочее состояние хранится в PostgreSQL. Инструкции отдельного запуска ниже относятся к самостоятельному использованию коннектора.
-
 <!-- mcp-name: io.github.Dudude-bit/yandex-lavka-mcp -->
 
 # yandex-lavka-mcp
@@ -77,183 +75,9 @@ The API sits under `https://lavka.yandex.ru/api/v1/providers/*` (plus
 `/api/v1/orders/submit` for placing orders). Requests need the CSRF token from
 the homepage HTML plus `X-Lavka-Web-*` headers — the client handles this.
 
-## Setup
+## Setup in Eda
 
-### 1. Install
-
-```bash
-uv venv && uv pip install -e .
-```
-
-### 2. Provide your Yandex session (one time)
-
-Log into Lavka in your browser first, then get the session cookies into
-`~/.config/yandex-lavka-mcp/config.json`.
-
-**macOS — pull cookies straight from Chrome** (one Keychain prompt → Allow):
-
-```bash
-uv pip install -e '.[browser]'
-python scripts/extract_chrome_cookies.py          # auto-detects your profile
-```
-
-**Any OS — import a private JSON file** mapping cookie names to string values:
-
-```bash
-python scripts/import_cookies.py --json /private/path/cookies.json
-```
-
-Session cookies expire — re-run when calls start failing with "Lavka session is
-not authorized".
-
-### 3. Set a delivery location
-
-Copy `config.example.json` to `~/.config/yandex-lavka-mcp/config.json` and edit,
-or set it from the assistant with `use_address` / `set_delivery_address`. The
-catalog only works once a location is set. Smoke-test:
-
-```bash
-python scripts/smoke.py "молоко"
-```
-
-### 4. Register with your assistant
-
-Claude Code:
-
-```bash
-claude mcp add yandex-lavka -- uv run --directory /path/to/yandex-lavka-mcp yandex-lavka-mcp
-```
-
-Claude Desktop (`mcpServers`):
-
-```json
-{
-  "yandex-lavka": {
-    "command": "uv",
-    "args": ["run", "--directory", "/path/to/yandex-lavka-mcp", "yandex-lavka-mcp"]
-  }
-}
-```
-
-## Docker Compose (local HTTP)
-
-Docker Compose builds the included Dockerfile and serves MCP at
-`http://127.0.0.1:8000/mcp`.
-
-1. Create `config.json` in the repository root from `config.example.json` and
-   fill in your session cookies and delivery location. If you already have a
-   working config, copy that instead. The file must exist before starting.
-2. Optionally copy `.env.example` to `.env` to change the host port, point
-   `YANDEX_LAVKA_MCP_CONFIG_FILE` at an existing config, or configure OAuth.
-3. Start the service:
-
-```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
-```
-
-For example, to prepare the files in PowerShell (only if they do not exist):
-
-```powershell
-Copy-Item config.example.json config.json
-Copy-Item .env.example .env
-# Edit config.json to replace the sample cookies and address before starting.
-```
-
-The config is mounted **writable** so address and payment-method changes persist
-on the host. On Linux, give the container user ownership of the chosen config
-file before starting: `sudo chown 10001:10001 config.json` and
-`sudo chmod 600 config.json` (adjust the path if using an existing config).
-
-Compose publishes the port only on the host's loopback interface and enables
-`ALLOW_INSECURE=1` for local use. Containers on the same Compose network can also
-reach the service. For remote access, configure [OAuth](#authentication-any-oidc-provider),
-set `YANDEX_LAVKA_MCP_ALLOW_INSECURE=0`, and put an HTTPS reverse proxy in front
-of the service. The health check verifies that the TCP listener is available;
-use `lavka_status` to check your Lavka configuration.
-
-Stop with `docker compose down`; the host config file is retained. After editing
-`.env`, run `docker compose up -d` to apply the changes.
-
-## Remote deploy (order from your phone)
-
-By default the server speaks **stdio** (local clients). Set
-`YANDEX_LAVKA_MCP_TRANSPORT=streamable-http` to expose it over HTTP so a hosted
-instance can back a [claude.ai custom connector](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
-(phone / web).
-
-A prebuilt [`Dockerfile`](Dockerfile) is included. Secrets are injected at
-runtime — never baked into the image:
-
-```bash
-docker build -t yandex-lavka-mcp .
-docker run -p 8000:8000 \
-  -e YANDEX_LAVKA_MCP_TRANSPORT=streamable-http \
-  -e YANDEX_LAVKA_MCP_CONFIG_JSON="$(cat ~/.config/yandex-lavka-mcp/config.json)" \
-  yandex-lavka-mcp
-```
-
-(The image defaults to stdio; the `TRANSPORT` env above switches it to HTTP.)
-
-### Environment variables
-
-| Var | Purpose |
-|-----|---------|
-| `YANDEX_LAVKA_MCP_TRANSPORT` | `stdio` (default) or `streamable-http`. |
-| `YANDEX_LAVKA_MCP_HOST` / `_PORT` | Bind address for HTTP (default `0.0.0.0:8000` in Docker). |
-| `YANDEX_LAVKA_MCP_CONFIG_JSON` | The whole `config.json` as one secret (instead of a file). |
-| `YANDEX_LAVKA_MCP_SPRAVKA` | Captcha pass for the server's IP, if Yandex demands one (see [Captcha](#captcha-from-a-server)). |
-
-### Authentication (any OIDC provider)
-
-A public endpoint spends real money, so **protect it**. `claude.ai`'s custom
-connector UI only supports **OAuth** (no static bearer / custom header — that
-works only in Claude Code/Desktop). This server is a provider-agnostic OAuth 2.1
-resource server: point it at *any* OpenID-Connect provider (Zitadel, Keycloak,
-Auth0, Google, …) and it validates JWT access tokens against that provider's
-JWKS and advertises it via OAuth protected-resource metadata.
-
-Enable it by installing the `server` extra (`pip install '.[server]'`, already in
-the Docker image) and setting:
-
-| Var | Purpose |
-|-----|---------|
-| `YANDEX_LAVKA_MCP_OAUTH_ISSUER` | Your provider's issuer URL (enables OAuth). |
-| `YANDEX_LAVKA_MCP_SERVER_URL` | Public URL of this MCP server (the resource). |
-| `YANDEX_LAVKA_MCP_OAUTH_AUDIENCE` | Expected token audience (optional but recommended). |
-| `YANDEX_LAVKA_MCP_OAUTH_SCOPES` | Space-separated required scopes (optional). |
-| `YANDEX_LAVKA_MCP_OAUTH_SUBJECTS` | Allow-list of token `sub`s that may call the server (optional; strongest lock — every request spends *your* Lavka session). |
-| `YANDEX_LAVKA_MCP_OAUTH_JWKS_URL` | Override JWKS URL (optional; else discovered). |
-
-A network-exposed HTTP transport **refuses to start** unless OAuth is configured
-(it spends real money). Set `YANDEX_LAVKA_MCP_ALLOW_INSECURE=1` only if you front
-it with your own auth. Leaving OAuth unset is allowed for loopback/local use.
-
-> Session cookies expire; when calls start failing, re-capture them and update
-> the `YANDEX_LAVKA_MCP_CONFIG_JSON` secret. There is no headless Yandex login.
-> The captcha pass (below) is a separate secret, so it survives this.
-
-## Captcha from a server
-
-Yandex may start answering a hosted instance with a captcha — decided by the
-server's IP, not the session (the same cookies keep working from home). Tools then
-fail with *"Yandex anti-bot returned a captcha"*. To see the manual helper's options:
-
-```bash
-python scripts/solve_captcha.py --help
-```
-
-Interactive use requires Playwright and desktop Chrome. Use `--output` to
-specify a new file in a private directory outside the repository. The script
-does not overwrite existing files or print the cookie to stdout.
-
-## Develop
-
-```bash
-uv pip install -e ".[dev]"
-pytest
-```
+Run the `lavka` service through the [root Compose stack](../compose.yaml). The local MCP endpoint is `http://127.0.0.1:8000/mcp`. For initial session import into PostgreSQL, follow the [Eda account setup instructions](../README.md#настройки-аккаунтов-и-перенос-старых-данных). Use `lavka_status` to check the session and delivery location.
 
 ## One account = one cart
 
@@ -264,12 +88,7 @@ same Yandex account from two places at once** (e.g. this server *and* a second
 MCP session, *and* the Lavka app): they all write the one shared cart, and you'll
 see items from the other writer appear in yours. Use a single client at a time.
 
-## Security & privacy
-
-- Cookies and address live only in `~/.config/yandex-lavka-mcp/config.json`
-  (chmod 600), git-ignored. Never commit them.
-- The server never adds payment methods or changes account settings.
-- Ordering always requires an explicit confirmed total.
+For development checks, follow the [stack test instructions](../README.md#разработка-и-проверки).
 
 ## License
 

@@ -23,7 +23,7 @@ class FatSecretClient:
         key = self.settings.consumer_key
         secret = self.settings.consumer_secret
         if not key or not secret:
-            raise RuntimeError('Set FATSECRET_CONSUMER_KEY and FATSECRET_CONSUMER_SECRET in .env')
+            raise RuntimeError('FatSecret OAuth consumer key and secret are required. See the account setup instructions.')
         token = token or {}
         return OAuth1Session(key, client_secret=secret, callback_uri=callback_uri, verifier=verifier,
                              signature_type=signature_type,
@@ -41,7 +41,7 @@ class FatSecretClient:
                 raise RuntimeError('FatSecret authorization is missing; import credentials or authorize first')
         else:
             if not self.settings.token_file.exists():
-                raise RuntimeError('Run python authorize.py first')
+                raise RuntimeError('FatSecret authorization is missing. Authorize the account first.')
             token = json.loads(self.settings.token_file.read_text(encoding='utf-8'))
         s = self.session(token)
         try:

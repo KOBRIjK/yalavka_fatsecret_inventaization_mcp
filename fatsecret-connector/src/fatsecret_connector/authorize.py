@@ -1,4 +1,4 @@
-"""Run once on your own computer. Secrets stay in .env / .tokens.json."""
+"""Interactive OAuth authorization for the configured FatSecret account."""
 import argparse
 import getpass
 import json
@@ -86,7 +86,7 @@ def main(settings: Settings | None = None):
     else:
         exists = token_file.exists()
     if exists:
-        raise SystemExit('Already authorized. Remove .tokens.json explicitly if you want to reconnect.')
+        raise SystemExit('Already authorized. Existing authorization has been kept.')
     # FatSecret's token endpoints require GET with query-string OAuth signing.
     # fetch_request_token() always sends POST, which this endpoint rejects.
     with client.session(callback_uri='oob', signature_type='QUERY') as s:
@@ -113,14 +113,14 @@ def main(settings: Settings | None = None):
     fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as output:
         json.dump(saved, output)
-    print('Authorization saved. Start server.py next.')
+    print('Authorization saved.')
 
 
 def cli(argv=None, *, default_config_dir: Path | None = None):
     parser = argparse.ArgumentParser(description='Authorize a FatSecret account')
     parser.add_argument('--config-dir', type=Path,
                         default=os.getenv('FATSECRET_CONFIG_DIR') or default_config_dir,
-                        help='Directory containing .env and .tokens.json; defaults to cwd.')
+                        help='Configuration directory for file-based mode.')
     args = parser.parse_args(argv)
     try:
         main(load_settings(args.config_dir))

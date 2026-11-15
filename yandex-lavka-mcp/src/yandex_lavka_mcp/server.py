@@ -57,8 +57,8 @@ async def _with_client(fn, *, require_location: bool = True):
     config = _load()
     if not config.is_authenticated():
         raise LavkaError(
-            "Not signed in. Run the one-time cookie capture (see README) and set "
-            "your session with the setup tooling first."
+            "Not signed in. See the account setup instructions in the README "
+            "to configure your Lavka session."
         )
     if require_location and not config.location.is_set():
         raise LavkaError(
@@ -630,7 +630,7 @@ def run() -> None:
         raise SystemExit(
             "Refusing to start: transport is network-exposed HTTP but no OAuth is "
             "configured (this endpoint places real orders). Set "
-            "YANDEX_LAVKA_MCP_OAUTH_ISSUER (see README 'Remote deploy'), or set "
+            "YANDEX_LAVKA_MCP_OAUTH_ISSUER, or set "
             "YANDEX_LAVKA_MCP_ALLOW_INSECURE=1 if it's fronted by your own auth."
         )
     mcp.run(transport=transport)

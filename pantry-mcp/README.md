@@ -5,7 +5,6 @@
 
 Остатки, операции и журнал находятся в PostgreSQL, в Docker volume eda_postgres_data.
 Для переноса старого учёта `migrate.py` читает `pantry.sqlite3` из каталога `LEGACY_DIR`, подключённого только для чтения.
-Локальная .venv и requirements-lock.txt больше не используются для запуска.
 
 Инструменты: pantry_status, list_stock, receive_stock, change_stock, stock_history, backup_pantry.
 backup_pantry создаёт JSON-копию запасов в Docker volume eda_pantry_backups.
